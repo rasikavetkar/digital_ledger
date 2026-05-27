@@ -1,6 +1,7 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:intl/intl.dart';
 import '../models/party.dart';
 import '../models/vehicle.dart';
 import '../models/transaction.dart';
@@ -21,7 +22,18 @@ class PdfService {
     List<Vehicle> vehicles,
     List<Transaction> transactions,
   ) async {
-    final pdf = pw.Document();
+    // Load Roboto from Google Fonts to support Unicode characters like "₹"
+    final robotoRegular = await PdfGoogleFonts.robotoRegular();
+    final robotoBold = await PdfGoogleFonts.robotoBold();
+    final robotoItalic = await PdfGoogleFonts.robotoItalic();
+
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: robotoRegular,
+        bold: robotoBold,
+        italic: robotoItalic,
+      ),
+    );
 
     // ── Totals ────────────────────────────────────────────────────────────────
     final credit = transactions
@@ -49,45 +61,96 @@ class PdfService {
     }
 
     // ── Build the transaction table rows (header + data + footer totals) ──────
-    pw.Widget _buildTransactionTable() {
+    pw.Widget buildTransactionTable() {
       // Column flex widths (total = 24)
       const colWidths = {
-        0: pw.FlexColumnWidth(3.0), // Date
-        1: pw.FlexColumnWidth(4.0), // Vehicle No.
-        2: pw.FlexColumnWidth(2.5), // Qty
-        3: pw.FlexColumnWidth(5.5), // Remarks
-        4: pw.FlexColumnWidth(2.0), // Type
-        5: pw.FlexColumnWidth(4.0), // Amount
+        0: pw.FlexColumnWidth(2.5), // Date
+        1: pw.FlexColumnWidth(10.0), // Details (Vehicle, Remarks, Qty)
+        2: pw.FlexColumnWidth(3.8), // Debit(-)
+        3: pw.FlexColumnWidth(3.8), // Credit(+)
+        4: pw.FlexColumnWidth(3.9), // Balance
       };
 
       // ── header row ──
-      pw.TableRow _headerRow() {
-        final labels = ['Date', 'Vehicle No.', 'Qty\n(Loads)', 'Remarks', 'Type', 'Amount'];
+      pw.TableRow headerRow() {
         return pw.TableRow(
           decoration: const pw.BoxDecoration(color: _blue),
-          children: labels
-              .map(
-                (label) => _cell(
-                  label,
-                  bold: true,
-                  color: PdfColors.white,
-                  align: pw.TextAlign.center,
-                  vertPad: 6,
-                ),
-              )
-              .toList(),
+          children: [
+            _cell('Date', bold: true, color: PdfColors.white, align: pw.TextAlign.left, vertPad: 6),
+            _cell('Details', bold: true, color: PdfColors.white, align: pw.TextAlign.left, vertPad: 6),
+            _cell('Debit(-)', bold: true, color: PdfColors.white, align: pw.TextAlign.right, vertPad: 6),
+            _cell('Credit(+)', bold: true, color: PdfColors.white, align: pw.TextAlign.right, vertPad: 6),
+            _cell('Balance', bold: true, color: PdfColors.white, align: pw.TextAlign.right, vertPad: 6),
+          ],
         );
       }
 
-      // ── data rows with alternating background ──
-      List<pw.TableRow> _dataRows() {
-        return List.generate(transactions.length, (i) {
-          final t = transactions[i];
-          final isAlt = i.isOdd;
-          final bg = isAlt ? _rowAlt : PdfColors.white;
-          final isCr = t.type == 'credit';
+      // ── Group and build rows chronologically with running balance and monthly totals ──
+      final sortedTxns = List<Transaction>.from(transactions)
+        ..sort((a, b) => a.date.compareTo(b.date));
 
-          return pw.TableRow(
+      final dataRows = <pw.TableRow>[];
+      double runningBalance = 0.0;
+      int? currentMonth;
+      int? currentYear;
+      double monthDebit = 0.0;
+      double monthCredit = 0.0;
+
+      void addMonthTotalRow(int month, int year, double deb, double cred) {
+        final monthName = DateFormat('MMMM yyyy').format(DateTime(year, month));
+        dataRows.add(
+          pw.TableRow(
+            decoration: const pw.BoxDecoration(color: _rowAlt),
+            children: [
+              _cell('', fontSize: 8),
+              _cell('$monthName Total', bold: true, fontSize: 8),
+              _cell(
+                deb > 0 ? Formatters.formatAmount(deb) : '0.00',
+                bold: true,
+                fontSize: 8,
+                align: pw.TextAlign.right,
+              ),
+              _cell(
+                cred > 0 ? Formatters.formatAmount(cred) : '0.00',
+                bold: true,
+                fontSize: 8,
+                align: pw.TextAlign.right,
+              ),
+              _cell('', fontSize: 8),
+            ],
+          ),
+        );
+      }
+
+      for (int i = 0; i < sortedTxns.length; i++) {
+        final t = sortedTxns[i];
+
+        // Check if month/year changed to insert the previous month's total row
+        if (currentMonth != null && (t.date.month != currentMonth || t.date.year != currentYear)) {
+          addMonthTotalRow(currentMonth, currentYear!, monthDebit, monthCredit);
+          monthDebit = 0.0;
+          monthCredit = 0.0;
+        }
+
+        currentMonth = t.date.month;
+        currentYear = t.date.year;
+
+        final isCr = t.type == 'credit';
+        if (isCr) {
+          runningBalance += t.amount;
+          monthCredit += t.amount;
+        } else {
+          runningBalance -= t.amount;
+          monthDebit += t.amount;
+        }
+
+        final isAlt = i.isOdd;
+        final bg = isAlt ? _rowAlt : PdfColors.white;
+        final vNum = vehicleNumber(t);
+        final details = 'Vehicle: $vNum (${t.quantity % 1 == 0 ? t.quantity.toInt() : t.quantity} loads)${t.remarks != null && t.remarks!.isNotEmpty ? ' | ${t.remarks}' : ''}';
+
+        dataRows.add(
+          pw.TableRow(
             decoration: pw.BoxDecoration(
               color: bg,
               border: const pw.Border(
@@ -95,55 +158,60 @@ class PdfService {
               ),
             ),
             children: [
-              _cell(Formatters.formatDate(t.date), fontSize: 8),
-              _cell(vehicleNumber(t), fontSize: 8),
+              _cell(DateFormat('dd MMM').format(t.date), fontSize: 8),
+              _cell(details, fontSize: 8),
               _cell(
-                t.quantity % 1 == 0
-                    ? t.quantity.toInt().toString()
-                    : t.quantity.toString(),
+                !isCr ? Formatters.formatAmount(t.amount) : '-',
                 fontSize: 8,
-                align: pw.TextAlign.center,
+                color: !isCr ? _debitText : null,
+                align: pw.TextAlign.right,
               ),
-              _cell(t.remarks ?? '-', fontSize: 8),
               _cell(
-                isCr ? 'CR' : 'DR',
+                isCr ? Formatters.formatAmount(t.amount) : '-',
+                fontSize: 8,
+                color: isCr ? _creditText : null,
+                align: pw.TextAlign.right,
+              ),
+              _cell(
+                '${Formatters.formatAmount(runningBalance.abs())} ${runningBalance >= 0 ? 'Cr' : 'Dr'}',
+                fontSize: 8,
                 bold: true,
-                fontSize: 8,
-                color: isCr ? _creditText : _debitText,
-                align: pw.TextAlign.center,
-              ),
-              _cell(
-                Formatters.formatAmount(t.amount),
-                fontSize: 8,
+                color: runningBalance >= 0 ? _creditText : _debitText,
                 align: pw.TextAlign.right,
               ),
             ],
-          );
-        });
+          ),
+        );
+      }
+
+      // Add final month's total row
+      if (currentMonth != null) {
+        addMonthTotalRow(currentMonth, currentYear!, monthDebit, monthCredit);
       }
 
       // ── footer totals row ──
-      pw.TableRow _footerRow() {
+      pw.TableRow footerRow() {
         return pw.TableRow(
           decoration: const pw.BoxDecoration(color: _blue),
           children: [
-            _cell('Totals', bold: true, color: PdfColors.white, colSpan: 1, fontSize: 8),
-            _cell('', colSpan: 1),                        // Vehicle
-            _cell('', colSpan: 1),                        // Qty
+            _cell('Totals', bold: true, color: PdfColors.white, fontSize: 8),
+            _cell('No. of Entries: ${transactions.length}', color: PdfColors.white, fontSize: 8),
             _cell(
-              'CR: ${Formatters.formatAmount(credit)}',
+              Formatters.formatAmount(debit),
               bold: true,
               color: PdfColors.white,
+              align: pw.TextAlign.right,
               fontSize: 8,
             ),
             _cell(
-              'DR: ${Formatters.formatAmount(debit)}',
+              Formatters.formatAmount(credit),
               bold: true,
               color: PdfColors.white,
+              align: pw.TextAlign.right,
               fontSize: 8,
             ),
             _cell(
-              Formatters.formatAmount(balance.abs()),
+              '${Formatters.formatAmount(balance.abs())} ${balance >= 0 ? 'Cr' : 'Dr'}',
               bold: true,
               color: PdfColors.white,
               align: pw.TextAlign.right,
@@ -157,9 +225,9 @@ class PdfService {
         columnWidths: colWidths,
         border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
         children: [
-          _headerRow(),
-          ..._dataRows(),
-          _footerRow(),
+          headerRow(),
+          ...dataRows,
+          footerRow(),
         ],
       );
     }
@@ -174,135 +242,56 @@ class PdfService {
         build: (context) => [
           pw.SizedBox(height: 12),
 
-          // ── Party info + Summary box ──────────────────────────────────────
+          // ── Party details & Vehicles ──────────────────────────────────────
           pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              // Left: party details + vehicles
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    _sectionLabel('Party Details'),
-                    pw.SizedBox(height: 6),
-                    _infoRow('Name', party.name),
-                    if (party.phone != null && party.phone!.isNotEmpty)
-                      _infoRow('Phone', party.phone!),
-                    _infoRow('Since', Formatters.formatDate(party.createdAt)),
-                    pw.SizedBox(height: 10),
-                    _sectionLabel('Vehicles (${vehicles.length})'),
-                    pw.SizedBox(height: 6),
-                    pw.Text(
-                      vehicles.isEmpty
-                          ? 'No vehicles registered'
-                          : vehicles.map((v) => '${v.number} (${v.type})').join(' • '),
-                      style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
-                    ),
-                  ],
-                ),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  _sectionLabel('Party Details'),
+                  pw.SizedBox(height: 4),
+                  _infoRow('Name', party.name),
+                  if (party.phone != null && party.phone!.isNotEmpty)
+                    _infoRow('Phone', party.phone!),
+                  _infoRow('Since', Formatters.formatDate(party.createdAt)),
+                ],
               ),
-
-              pw.SizedBox(width: 16),
-
-              // Right: summary box
-              pw.Container(
-                width: 160,
-                decoration: pw.BoxDecoration(
-                  border: pw.Border.all(color: PdfColors.grey300),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-                ),
-                child: pw.Column(
-                  children: [
-                    // Total Credit
-                    pw.Container(
-                      width: double.infinity,
-                      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: const pw.BoxDecoration(
-                        color: _creditBg,
-                        borderRadius: pw.BorderRadius.only(
-                          topLeft: pw.Radius.circular(5),
-                          topRight: pw.Radius.circular(5),
-                        ),
-                      ),
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Text(
-                            'Total Credit',
-                            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
-                          ),
-                          pw.SizedBox(height: 2),
-                          pw.Text(
-                            Formatters.formatAmount(credit),
-                            style: pw.TextStyle(
-                              fontSize: 11,
-                              fontWeight: pw.FontWeight.bold,
-                              color: _creditText,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Total Debit
-                    pw.Container(
-                      width: double.infinity,
-                      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: const pw.BoxDecoration(color: _debitBg),
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Text(
-                            'Total Debit',
-                            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
-                          ),
-                          pw.SizedBox(height: 2),
-                          pw.Text(
-                            Formatters.formatAmount(debit),
-                            style: pw.TextStyle(
-                              fontSize: 11,
-                              fontWeight: pw.FontWeight.bold,
-                              color: _debitText,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Net Balance
-                    pw.Container(
-                      width: double.infinity,
-                      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: const pw.BoxDecoration(
-                        color: PdfColors.white,
-                        borderRadius: pw.BorderRadius.only(
-                          bottomLeft: pw.Radius.circular(5),
-                          bottomRight: pw.Radius.circular(5),
-                        ),
-                      ),
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Text(
-                            'Net Balance',
-                            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
-                          ),
-                          pw.SizedBox(height: 2),
-                          pw.Text(
-                            '${balance >= 0 ? '' : '-'}${Formatters.formatAmount(balance.abs())}',
-                            style: pw.TextStyle(
-                              fontSize: 11,
-                              fontWeight: pw.FontWeight.bold,
-                              color: _blue,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  _sectionLabel('Vehicles (${vehicles.length})'),
+                  pw.SizedBox(height: 4),
+                  pw.Text(
+                    vehicles.isEmpty
+                        ? 'No vehicles registered'
+                        : vehicles.map((v) => '${v.number} (${v.type})').join('\n'),
+                    textAlign: pw.TextAlign.right,
+                    style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+                  ),
+                ],
               ),
             ],
           ),
+          pw.SizedBox(height: 16),
 
+          // ── Four Summary Cards (Opening Balance, Total Debit, Total Credit, Net Balance) ──
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              _summaryCard('Opening Balance', Formatters.formatAmount(0.0), subtitle: '(on ${Formatters.formatDate(party.createdAt)})'),
+              _summaryCard('Total Debit(-)', Formatters.formatAmount(debit), color: _debitText, bg: _debitBg),
+              _summaryCard('Total Credit(+)', Formatters.formatAmount(credit), color: _creditText, bg: _creditBg),
+              _summaryCard(
+                'Net Balance', 
+                '${Formatters.formatAmount(balance.abs())} ${balance >= 0 ? 'Cr' : 'Dr'}', 
+                color: balance >= 0 ? _creditText : _debitText,
+                bg: balance >= 0 ? _creditBg : _debitBg,
+                subtitle: balance >= 0 ? '(${party.name} will pay)' : '(${party.name} will get)'
+              ),
+            ],
+          ),
           pw.SizedBox(height: 20),
 
           // ── Transactions table ─────────────────────────────────────────────
@@ -319,7 +308,7 @@ class PdfService {
               ),
             )
           else
-            _buildTransactionTable(),
+            buildTransactionTable(),
 
           pw.SizedBox(height: 20),
         ],
@@ -433,6 +422,47 @@ class PdfService {
     );
   }
 
+  static pw.Widget _summaryCard(
+    String title,
+    String value, {
+    PdfColor? color,
+    PdfColor? bg,
+    String? subtitle,
+  }) {
+    return pw.Container(
+      width: 125,
+      height: 60,
+      padding: const pw.EdgeInsets.all(8),
+      decoration: pw.BoxDecoration(
+        color: bg ?? PdfColors.grey100,
+        border: pw.Border.all(color: PdfColors.grey300),
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        children: [
+          pw.Text(
+            title,
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+          ),
+          pw.Text(
+            value,
+            style: pw.TextStyle(
+              fontSize: 11,
+              fontWeight: pw.FontWeight.bold,
+              color: color ?? PdfColors.black,
+            ),
+          ),
+          pw.Text(
+            subtitle ?? ' ',
+            style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Single table cell – padding + optional styling
   static pw.Widget _cell(
     String text, {
@@ -441,7 +471,6 @@ class PdfService {
     pw.TextAlign align = pw.TextAlign.left,
     double fontSize = 9,
     double vertPad = 5,
-    int colSpan = 1,
   }) {
     return pw.Padding(
       padding: pw.EdgeInsets.symmetric(horizontal: 5, vertical: vertPad),
