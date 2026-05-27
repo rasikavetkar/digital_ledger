@@ -6,7 +6,7 @@ class VehicleCard extends StatelessWidget {
   final Vehicle vehicle;
   final String ownerName;
   final int tripCount;
-  final int totalLoads;
+  final double totalLoads;
   final VoidCallback onTap;
 
   const VehicleCard({
@@ -63,7 +63,7 @@ class VehicleCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${vehicle.type}',
+                      vehicle.type,
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey[500],
@@ -83,7 +83,7 @@ class VehicleCard extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '$totalLoads loads',
+                    '${totalLoads % 1 == 0 ? totalLoads.toInt() : totalLoads} loads',
                     style: TextStyle(
                       fontSize: 11,
                       color: Colors.grey[600],

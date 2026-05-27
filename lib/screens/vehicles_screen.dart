@@ -30,10 +30,9 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<VehicleProvider>(
-      builder: (context, vehicleProvider, _) {
+    return Consumer2<VehicleProvider, TransactionProvider>(
+      builder: (context, vehicleProvider, transactionProvider, _) {
         final partyProvider = context.read<PartyProvider>();
-        final transactionProvider = context.read<TransactionProvider>();
 
         var filteredVehicles = vehicleProvider.vehicles;
 
@@ -153,7 +152,7 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
                           ownerName: party?.name ?? 'Unknown',
                           tripCount: transactions.length,
                           totalLoads: transactions.fold(
-                            0,
+                            0.0,
                             (sum, t) => sum + t.quantity,
                           ),
                           onTap: () {

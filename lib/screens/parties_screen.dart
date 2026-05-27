@@ -12,10 +12,9 @@ class PartiesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<PartyProvider>(
-      builder: (context, partyProvider, _) {
+    return Consumer2<PartyProvider, TransactionProvider>(
+      builder: (context, partyProvider, transactionProvider, _) {
         final vehicleProvider = context.read<VehicleProvider>();
-        final transactionProvider = context.read<TransactionProvider>();
 
         return Column(
           children: [
@@ -109,8 +108,6 @@ class PartiesScreen extends StatelessWidget {
                               MaterialPageRoute(
                                 builder: (_) => PartyDetailScreen(
                                   party: party,
-                                  vehicles: vehicles,
-                                  transactions: transactions,
                                 ),
                               ),
                             );

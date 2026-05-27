@@ -25,7 +25,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
   }
 
   @override
-  void dispose() {
+  void dispose() { 
     _searchController.dispose();
     super.dispose();
   }
@@ -52,53 +52,78 @@ class _LedgerScreenState extends State<LedgerScreen> {
 
         // Apply search filter
         if (_searchController.text.isNotEmpty) {
-          final query = _searchController.text.toLowerCase();
+          final query = _searchController.text.trim().toLowerCase();
           filteredTransactions = filteredTransactions
               .where((t) {
                 final vehicle = vehicleProvider.getVehicleById(t.vehicleId);
-                return vehicle?.number.toLowerCase().contains(query) ?? false;
+                if (vehicle == null) return false;
+                
+                // Search by vehicle number (last 4 digits exact match if 4 digits entered, substring otherwise)
+                bool vehicleMatch = false;
+                final isFourDigits = RegExp(r'^\d{4}$').hasMatch(query);
+                if (isFourDigits) {
+                  if (vehicle.number.length >= 4) {
+                    final lastFour = vehicle.number.substring(vehicle.number.length - 4);
+                    vehicleMatch = (lastFour.toLowerCase() == query);
+                  }
+                } else {
+                  vehicleMatch = vehicle.number.toLowerCase().contains(query);
+                }
+                
+                // Search by party/owner name
+                final party = partyProvider.getPartyById(vehicle.partyId);
+                final partyMatch = party?.name.toLowerCase().contains(query) ?? false;
+                
+                return vehicleMatch || partyMatch;
               })
               .toList();
         }
 
         return Column(
           children: [
-            // Summary cards
+            // Summary cards - Credit and Debit side by side
             Padding(
               padding: const EdgeInsets.all(12),
-              child: SizedBox(
-                height: 130,
-                child: GridView(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    childAspectRatio: 0.85,
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: StatCard(
+                          label: 'Total Credit',
+                          value: transactionProvider.totalCredit,
+                          bgColor: AppColors.creditBg,
+                          textColor: AppColors.creditText,
+                          icon: Icons.arrow_downward,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: StatCard(
+                          label: 'Total Debit',
+                          value: transactionProvider.totalDebit,
+                          bgColor: AppColors.debitBg,
+                          textColor: AppColors.debitText,
+                          icon: Icons.arrow_upward,
+                        ),
+                      ),
+                    ],
                   ),
-                  children: [
-                    StatCard(
-                      label: 'Total Credit',
-                      value: transactionProvider.totalCredit,
-                      bgColor: AppColors.creditBg,
-                      textColor: AppColors.creditText,
-                      icon: Icons.arrow_downward,
-                    ),
-                    StatCard(
-                      label: 'Total Debit',
-                      value: transactionProvider.totalDebit,
-                      bgColor: AppColors.debitBg,
-                      textColor: AppColors.debitText,
-                      icon: Icons.arrow_upward,
-                    ),
-                    StatCard(
-                      label: 'Balance',
-                      value: transactionProvider.balance,
-                      bgColor: Colors.blue.shade50,
-                      textColor: AppColors.balanceText,
-                      icon: Icons.wallet,
-                    ),
-                  ],
-                ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: StatCard(
+                          label: 'Balance',
+                          value: transactionProvider.balance,
+                          bgColor: Colors.blue.shade50,
+                          textColor: AppColors.balanceText,
+                          icon: Icons.wallet,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
 
@@ -111,7 +136,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
                   setState(() {});
                 },
                 decoration: InputDecoration(
-                  hintText: 'Search by vehicle number',
+                  hintText: 'Search by vehicle number or party name',
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: _searchController.text.isNotEmpty
                       ? IconButton(
@@ -194,11 +219,15 @@ class _LedgerScreenState extends State<LedgerScreen> {
                           transaction: transaction,
                           vehicle: vehicle,
                           party: party,
-                          onDelete: () {
-                            transactionProvider.deleteTransaction(transaction.id!);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Entry deleted')),
-                            );
+                          onDelete: () async {
+                            await transactionProvider.deleteTransaction(transaction.id!);
+                            if (context.mounted) {
+                              context.read<VehicleProvider>().loadVehicles();
+                              context.read<PartyProvider>().loadParties();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Entry deleted')),
+                              );
+                            }
                           },
                         );
                       },

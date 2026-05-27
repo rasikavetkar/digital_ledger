@@ -53,4 +53,8 @@ class PartyProvider extends ChangeNotifier {
   Future<int> getPartyCount() async {
     return _parties.length;
   }
+
+  Future<void> clearAllData() async {
+    await loadParties();
+  }
 }

@@ -45,6 +45,7 @@ dependencies:
   flutter_slidable: ^4.0.3
   share_plus: ^7.2.1
   path: ^1.9.0
+  fl_chart: ^0.71.0
 
 dev_dependencies:
   flutter_test:

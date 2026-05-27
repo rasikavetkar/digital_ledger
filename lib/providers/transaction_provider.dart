@@ -24,7 +24,7 @@ class TransactionProvider extends ChangeNotifier {
   Future<int> addTransaction({
     int? vehicleId,
     required DateTime date,
-    required int quantity,
+    required double quantity,
     required double amount,
     required String type,
     String? remarks,
@@ -43,7 +43,28 @@ class TransactionProvider extends ChangeNotifier {
   }
 
   Future<void> deleteTransaction(int id) async {
-    await _db.deleteTransaction(id);
+    final transaction = getTransactionById(id);
+    if (transaction != null && transaction.vehicleId != null) {
+      final vehicleId = transaction.vehicleId!;
+      await _db.deleteTransaction(id);
+      
+      // Check if this vehicle has any other transactions
+      final remainingTxns = await _db.getTransactionsByVehicle(vehicleId);
+      if (remainingTxns.isEmpty) {
+        final vehicle = await _db.getVehicleById(vehicleId);
+        await _db.deleteVehicle(vehicleId);
+        
+        if (vehicle != null) {
+          final partyId = vehicle.partyId;
+          final remainingVehicles = await _db.getVehiclesByParty(partyId);
+          if (remainingVehicles.isEmpty) {
+            await _db.deleteParty(partyId);
+          }
+        }
+      }
+    } else {
+      await _db.deleteTransaction(id);
+    }
     await loadTransactions();
   }
 
@@ -51,7 +72,7 @@ class TransactionProvider extends ChangeNotifier {
     required int id,
     required int vehicleId,
     required DateTime date,
-    required int quantity,
+    required double quantity,
     required double amount,
     required String type,
     String? remarks,
@@ -137,7 +158,7 @@ class TransactionProvider extends ChangeNotifier {
     return _db.getDebitTotalByParty(partyId);
   }
 
-  Future<int> getTotalLoads() async {
+  Future<double> getTotalLoads() async {
     return _db.getTotalLoads();
   }
 
@@ -153,5 +174,10 @@ class TransactionProvider extends ChangeNotifier {
 
   List<Transaction> getTransactionsForVehicle(int vehicleId) {
     return _transactions.where((t) => t.vehicleId == vehicleId).toList();
+  }
+
+  Future<void> clearAllData() async {
+    await _db.clearAllData();
+    await loadTransactions();
   }
 }

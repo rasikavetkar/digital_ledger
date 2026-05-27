@@ -274,14 +274,14 @@ class DatabaseHelper {
         : 0.0;
   }
 
-  Future<int> getTotalLoads() async {
+  Future<double> getTotalLoads() async {
     final db = await database;
     final result = await db.rawQuery(
       'SELECT SUM(quantity) as total FROM transactions'
     );
     return (result.isNotEmpty && result[0]['total'] != null)
-        ? (result[0]['total'] as num).toInt()
-        : 0;
+        ? (result[0]['total'] as num).toDouble()
+        : 0.0;
   }
 
   Future<double> getTotalCredit() async {
@@ -302,6 +302,13 @@ class DatabaseHelper {
     return (result.isNotEmpty && result[0]['total'] != null)
         ? (result[0]['total'] as num).toDouble()
         : 0.0;
+  }
+
+  Future<void> clearAllData() async {
+    final db = await database;
+    await db.delete('transactions');
+    await db.delete('vehicles');
+    await db.delete('parties');
   }
 
   Future<void> closeDatabase() async {

@@ -108,6 +108,12 @@ class _HomeScreenState extends State<HomeScreen> {
             remarks: remarks,
           );
         },
+        onAddParty: (name, phone) async {
+          return await partyProvider.addParty(name, phone ?? '');
+        },
+        onAddVehicle: (number, partyId, type) async {
+          return await vehicleProvider.addVehicle(number, partyId, type);
+        },
       ),
     );
   }

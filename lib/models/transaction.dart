@@ -2,7 +2,7 @@ class Transaction {
   final int? id; // primary key, autoincrement (null before insert)
   final int? vehicleId; // foreign key → Vehicle (optional)
   final DateTime date;
-  final int quantity; // number of sand loads
+  final double quantity; // number of sand loads
   final double amount;
   final String type; // "credit" | "debit"
   final String? remarks; // nullable
@@ -23,7 +23,7 @@ class Transaction {
     int? id,
     int? vehicleId,
     DateTime? date,
-    int? quantity,
+    double? quantity,
     double? amount,
     String? type,
     String? remarks,
@@ -59,7 +59,7 @@ class Transaction {
       id: json['id'] as int?,
       vehicleId: json['vehicleId'] as int,
       date: DateTime.parse(json['date'] as String),
-      quantity: json['quantity'] as int,
+      quantity: (json['quantity'] as num).toDouble(),
       amount: (json['amount'] as num).toDouble(),
       type: json['type'] as String,
       remarks: json['remarks'] as String?,

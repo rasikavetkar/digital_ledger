@@ -68,4 +68,8 @@ class VehicleProvider extends ChangeNotifier {
   Future<int> getVehicleCountForParty(int partyId) async {
     return getVehiclesForParty(partyId).length;
   }
+
+  Future<void> clearAllData() async {
+    await loadVehicles();
+  }
 }
